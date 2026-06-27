@@ -31,7 +31,7 @@ LORA_PATH = "./outputs"
 
 print("토크나이저 로드 중...")
 
-tokenizer = AutoTokenizer.pre_trained(
+tokenizer = AutoTokenizer.from_pretrained(
     BASE_MODEL
 )
 
@@ -42,7 +42,7 @@ tokenizer = AutoTokenizer.pre_trained(
 
 print("원본 모델 로드 중...")
 
-base_model = AutoModelForCausalLM.pre_trained(
+base_model = AutoModelForCausalLM.from_pretrained(
     BASE_MODEL
 )
 
@@ -53,7 +53,7 @@ base_model = AutoModelForCausalLM.pre_trained(
 
 print("LoRA 적용 중...")
 
-model = PeftModel.pre_trained(
+model = PeftModel.from_pretrained(
     BASE_MODEL
 )
 
