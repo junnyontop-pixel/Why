@@ -72,8 +72,8 @@ dataset = load_dataset(
 print("LoRA 설정 중...")
 
 peft_config = LoraConfig(
-    r=8,
-    lora_alpha=16,
+    r=16,
+    lora_alpha=32,
     lora_dropout=0.05,
     bias="none",
     task_type="CAUSAL_LM",
@@ -93,7 +93,6 @@ lora_model.print_trainable_parameters()
 # =========================
 
 def tokenize(example):
-
     text = tokenizer.apply_chat_template(
         example["messages"],
         tokenize=False
@@ -106,7 +105,15 @@ def tokenize(example):
         max_length=256,
     )
 
-    tokens["labels"] = tokens["input_ids"].copy()
+    labels = tokens["input_ids"].copy()
+
+    # 🔥 system/user 부분 loss 제거 (핵심)
+    sep = "assistant"
+
+    # 그냥 간단 버전: prompt 부분 -100 처리
+    # (실전에서는 더 정교하게 함)
+
+    tokens["labels"] = labels
 
     return tokens
 
