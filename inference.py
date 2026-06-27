@@ -69,10 +69,8 @@ while True:
         break
 
     messages = [
-        {
-            "role": "user",
-            "content": user_input
-        }
+        {"role": "system", "content": "너는 짧고 무심하고 싸가지없 대답한다."},
+        {"role": "user", "content": user_input}
     ]
 
     prompt = tokenizer.apply_chat_template(
@@ -81,15 +79,19 @@ while True:
         add_generation_prompt=True
     )
 
-    inputs = inputs = tokenizer(prompt, return_tensors="pt").to(device)
+    inputs = tokenizer(prompt, return_tensors="pt")
+    inputs = {k: v.to(device) for k, v in inputs.items()}
 
     outputs = model.generate(
         **inputs,
         max_new_tokens=20,
-        temperature=0.7,
-        top_p=0.9
+        temperature=1.0,
+        top_p=0.95
     )
     
-    answer = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    input_len = inputs["input_ids"].shape[1]
+    generated = outputs[0][input_len:]
+    
+    answer = tokenizer.decode(generated, skip_special_tokens=True)
 
     print("왜AI:", answer)
