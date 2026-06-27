@@ -73,7 +73,7 @@ print("LoRA 설정 중...")
 
 peft_config = LoraConfig(
     r=16,
-    lora_alpha=32,
+    lora_alpha=64,
     lora_dropout=0.05,
     bias="none",
     task_type="CAUSAL_LM",
