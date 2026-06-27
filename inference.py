@@ -53,10 +53,7 @@ base_model = AutoModelForCausalLM.from_pretrained(
 
 print("LoRA 적용 중...")
 
-model = PeftModel.from_pretrained(
-    BASE_MODEL
-)
-
+PeftModel.from_pretrained(BASE_MODEL, LORA_PATH)
 
 # =========================
 # 추론 루프
