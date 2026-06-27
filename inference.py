@@ -62,14 +62,13 @@ model = PeftModel.from_pretrained(base_model, LORA_PATH).to(device)
 print("왜AI 시작")
 
 while True:
-
     user_input = input("너: ")
-
     if user_input.lower() == "exit":
         break
 
+    # 💡 중요: 학습 데이터셋에 넣었던 것과 완전히 같은 형식의 System 프롬프트여야 합니다.
     messages = [
-        {"role": "system", "content": "너는 짧고 무심하고 싸가지없 대답한다."},
+        {"role": "system", "content": "너는 짧고 무심하고 싸가지없게 대답한다."},
         {"role": "user", "content": user_input}
     ]
 
@@ -79,19 +78,22 @@ while True:
         add_generation_prompt=True
     )
 
-    inputs = tokenizer(prompt, return_tensors="pt")
-    inputs = {k: v.to(device) for k, v in inputs.items()}
+    inputs = tokenizer(prompt, return_tensors="pt").to(device)
 
     outputs = model.generate(
         **inputs,
-        max_new_tokens=20,
-        temperature=1.0,
-        top_p=0.95
+        max_new_tokens=32,
+        do_sample=True,          # 👈 다양성 부여
+        temperature=0.8,         # 👈 너무 높으면 헛소리하니 0.7~0.8 추천
+        top_p=0.9,
+        repetition_penalty=1.2,  # 👈 했던 말 반복하거나 상투적인 대답 방지
+        eos_token_id=tokenizer.eos_token_id,
+        pad_token_id=tokenizer.pad_token_id
     )
     
     input_len = inputs["input_ids"].shape[1]
     generated = outputs[0][input_len:]
     
-    answer = tokenizer.decode(generated, skip_special_tokens=True)
-
+    answer = tokenizer.decode(generated, skip_special_tokens=True).strip()
     print("왜AI:", answer)
+
