@@ -83,7 +83,7 @@ while True:
 
     inputs = inputs = tokenizer(prompt, return_tensors="pt").to(device)
 
-    outputs = model.generate(
+    outputs = base_model.generate(
         **inputs,
         max_new_tokens=20,
         temperature=0.7,
