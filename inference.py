@@ -44,7 +44,7 @@ print("원본 모델 로드 중...")
 
 base_model = AutoModelForCausalLM.from_pretrained(
     BASE_MODEL
-)
+).to(device)
 
 
 # =========================
@@ -53,7 +53,7 @@ base_model = AutoModelForCausalLM.from_pretrained(
 
 print("LoRA 적용 중...")
 
-PeftModel.from_pretrained(base_model, LORA_PATH)
+model = PeftModel.from_pretrained(base_model, LORA_PATH).to(device)
 
 # =========================
 # 추론 루프
@@ -83,7 +83,7 @@ while True:
 
     inputs = inputs = tokenizer(prompt, return_tensors="pt").to(device)
 
-    outputs = base_model.generate(
+    outputs = model.generate(
         **inputs,
         max_new_tokens=20,
         temperature=0.7,
