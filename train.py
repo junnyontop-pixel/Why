@@ -93,13 +93,19 @@ lora_model.print_trainable_parameters()
 # =========================
 
 def tokenize(example):
-    text = tokenizer.apply_chat_template(
+    chat = tokenizer.apply_chat_template(
         example["messages"],
         tokenize=False
     )
 
+    # prompt만 따로 잘라야 함
+    user_part = tokenizer.apply_chat_template(
+        [example["messages"][0]],
+        tokenize=False
+    )
+
     tokens = tokenizer(
-        text,
+        chat,
         truncation=True,
         padding="max_length",
         max_length=256,
@@ -107,16 +113,17 @@ def tokenize(example):
 
     labels = tokens["input_ids"].copy()
 
-    # 🔥 system/user 부분 loss 제거 (핵심)
-    sep = "assistant"
+    # 🔥 핵심: prompt 부분 loss 제거
+    prompt_tokens = tokenizer(
+        user_part,
+        add_special_tokens=False
+    )["input_ids"]
 
-    # 그냥 간단 버전: prompt 부분 -100 처리
-    # (실전에서는 더 정교하게 함)
+    labels[:len(prompt_tokens)] = [-100] * len(prompt_tokens)
 
     tokens["labels"] = labels
 
     return tokens
-
 
 # =========================
 # 데이터 전처리
