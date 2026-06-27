@@ -1,197 +1,120 @@
-# 1. 라이브러리 불러오기
-
+import torch
 from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
     TrainingArguments,
     Trainer
 )
-
 from datasets import load_dataset
-
 from peft import (
     LoraConfig,
     get_peft_model,
 )
 
-# TODO:
-# 필요한 라이브러리 추가
-
-
 # =========================
 # 설정
 # =========================
-
 MODEL_NAME = "Qwen/Qwen2.5-0.5B-Instruct"
-
-
 DATASET_PATH = "./data/dataset.jsonl"
-
 OUTPUT_DIR = "./outputs"
 
-
 # =========================
-# 토크나이저 로드
+# 토크나이저 및 모델 로드
 # =========================
-
-print("토크나이저 로드 중...")
-
-tokenizer = AutoTokenizer.from_pretrained(
-    MODEL_NAME
-)
-
+print("토크나이저 및 모델 로드 중...")
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 tokenizer.pad_token = tokenizer.eos_token
 
-# =========================
-# 모델 로드
-# =========================
-
-print("모델 로드 중...")
-
 model = AutoModelForCausalLM.from_pretrained(
-    MODEL_NAME
+    MODEL_NAME,
+    torch_dtype=torch.bfloat16, # 메모리 절약 및 학습 안정성
+    device_map="auto"
 )
-
-
-# =========================
-# 데이터셋 로드
-# =========================
-
-print("데이터셋 로드 중...")
-
-dataset = load_dataset(
-    "json",
-    data_files=DATASET_PATH
-)
-
 
 # =========================
 # LoRA 설정
 # =========================
-
 print("LoRA 설정 중...")
-
 peft_config = LoraConfig(
     r=16,
-    lora_alpha=64,
+    lora_alpha=32,
+    # Qwen 계열은 아래 target_modules를 지정해줘야 싸가지없는 말투(스타일)가 전반적으로 잘 학습됩니다.
+    target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
     lora_dropout=0.05,
     bias="none",
     task_type="CAUSAL_LM",
 )
 
-# TODO:
-# LoRA를 모델에 적용
-
 lora_model = get_peft_model(model, peft_config)
-
-# 학습 가능한 파라미터 비율 확인
 lora_model.print_trainable_parameters()
 
-
 # =========================
-# 토큰화 함수
+# 데이터셋 로드 및 안전한 토큰화 함수
 # =========================
+print("데이터셋 로드 및 전처리...")
+dataset = load_dataset("json", data_files=DATASET_PATH)
 
 def tokenize(example):
-    chat = tokenizer.apply_chat_template(
-        example["messages"],
-        tokenize=False
-    )
+    messages = example["messages"]
+    
+    # 1. Assistant 답변을 제외한 프롬프트 생성 (System + User)
+    prompt_chat = messages[:-1]
+    # 2. 전체 대화 생성 (System + User + Assistant)
+    full_chat = messages
 
-    # prompt만 따로 잘라야 함
-    user_part = tokenizer.apply_chat_template(
-        [example["messages"][0]],
-        tokenize=False
-    )
+    prompt_str = tokenizer.apply_chat_template(prompt_chat, tokenize=False, add_generation_prompt=True)
+    full_str = tokenizer.apply_chat_template(full_chat, tokenize=False) + tokenizer.eos_token
 
-    tokens = tokenizer(
-        chat,
-        truncation=True,
-        padding="max_length",
-        max_length=256,
-    )
+    # 각각 토큰화
+    prompt_tokens = tokenizer(prompt_str, add_special_tokens=False)["input_ids"]
+    full_tokens = tokenizer(full_str, add_special_tokens=False)["input_ids"]
 
-    labels = tokens["input_ids"].copy()
+    # 🔥 정밀 마스킹: 프롬프트 길이만큼 -100으로 채우기
+    labels = [-100] * len(prompt_tokens) + full_tokens[len(prompt_tokens):]
 
-    # 🔥 핵심: prompt 부분 loss 제거
-    prompt_tokens = tokenizer(
-        user_part,
-        add_special_tokens=False
-    )["input_ids"]
+    # 최대 길이 맞추기 (Truncation & Padding)
+    max_length = 256
+    if len(full_tokens) > max_length:
+        full_tokens = full_tokens[:max_length]
+        labels = labels[:max_length]
+    else:
+        padding_len = max_length - len(full_tokens)
+        full_tokens = full_tokens + [tokenizer.pad_token_id] * padding_len
+        labels = labels + [-100] * padding_len
 
-    labels[:len(prompt_tokens)] = [-100] * len(prompt_tokens)
+    return {
+        "input_ids": full_tokens,
+        "attention_mask": [1 if t != tokenizer.pad_token_id else 0 for t in full_tokens],
+        "labels": labels
+    }
 
-    tokens["labels"] = labels
-
-    return tokens
-
-# =========================
-# 데이터 전처리
-# =========================
-
-print("전처리 중...")
-
-tokenized_dataset = dataset.map(tokenize)
-
+tokenized_dataset = dataset["train"].map(tokenize)
 
 # =========================
-# 학습 설정
+# 학습 설정 및 시작
 # =========================
-
-# TODO:
-# TrainingArguments 작성
-
 training_args = TrainingArguments(
     output_dir=OUTPUT_DIR,
-    num_train_epochs=5,
-    per_device_train_batch_size=8,
-    learning_rate=2e-5,
+    num_train_epochs=5,               # 말투 변화를 위해 에포크를 조금 더 늘리는 것을 추천합니다.
+    per_device_train_batch_size=4,
+    gradient_accumulation_steps=2,    # 배치가 작을 때 안정성 확보
+    learning_rate=1e-4,               # LoRA는 일반 파인튜닝보다 lr을 조금 더 높게(1e-4 ~ 2e-4) 잡는 게 효과적입니다.
     weight_decay=0.01,
-
-    eval_strategy="no",   # ← 변경
-
+    logging_steps=10,
     save_strategy="epoch",
-
-    logging_steps=100,
+    bf16=True                         # GPU가 지원한다면 bf16 추천
 )
-
-
-# =========================
-# Trainer 생성
-# =========================
-
-# TODO:
-# SFTTrainer 또는 Trainer 생성
 
 trainer = Trainer(
     model=lora_model,
     args=training_args,
-    train_dataset=tokenized_dataset["train"],
+    train_dataset=tokenized_dataset,
 )
 
-
-# =========================
-# 학습 시작
-# =========================
-
 print("학습 시작")
-
-# TODO:
-
 trainer.train()
 
-
-# =========================
 # 저장
-# =========================
-
-print("모델 저장 중...")
-
-# TODO:
-# 저장 코드
-
 trainer.save_model(OUTPUT_DIR)
 tokenizer.save_pretrained(OUTPUT_DIR)
-
-
 print("완료")
