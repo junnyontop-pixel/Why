@@ -38,7 +38,6 @@ print("LoRA 설정 중...")
 peft_config = LoraConfig(
     r=16,
     lora_alpha=32,
-    # Qwen 계열은 아래 target_modules를 지정해줘야 싸가지없는 말투(스타일)가 전반적으로 잘 학습됩니다.
     target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
     lora_dropout=0.05,
     bias="none",
@@ -57,19 +56,17 @@ dataset = load_dataset("json", data_files=DATASET_PATH)
 def tokenize(example):
     messages = example["messages"]
     
-    # 1. Assistant 답변을 제외한 프롬프트 생성 (System + User)
+    # Assistant 답변을 제외한 프롬프트 생성 (System + User)
     prompt_chat = messages[:-1]
-    # 2. 전체 대화 생성 (System + User + Assistant)
     full_chat = messages
 
     prompt_str = tokenizer.apply_chat_template(prompt_chat, tokenize=False, add_generation_prompt=True)
     full_str = tokenizer.apply_chat_template(full_chat, tokenize=False) + tokenizer.eos_token
 
-    # 각각 토큰화
     prompt_tokens = tokenizer(prompt_str, add_special_tokens=False)["input_ids"]
     full_tokens = tokenizer(full_str, add_special_tokens=False)["input_ids"]
 
-    # 🔥 정밀 마스킹: 프롬프트 길이만큼 -100으로 채우기
+    # 정밀 마스킹: 프롬프트 길이만큼 -100으로 채우기
     labels = [-100] * len(prompt_tokens) + full_tokens[len(prompt_tokens):]
 
     # 최대 길이 맞추기 (Truncation & Padding)
@@ -88,6 +85,7 @@ def tokenize(example):
         "labels": labels
     }
 
+# 💡 안전장치: .map() 적용 시 dataset["train"] 구조가 확실히 잡히도록 명시
 tokenized_dataset = dataset["train"].map(tokenize)
 
 # =========================
@@ -95,14 +93,15 @@ tokenized_dataset = dataset["train"].map(tokenize)
 # =========================
 training_args = TrainingArguments(
     output_dir=OUTPUT_DIR,
-    num_train_epochs=5,               # 말투 변화를 위해 에포크를 조금 더 늘리는 것을 추천합니다.
+    num_train_epochs=10,               # 👈 50줄 데이터셋 특성상 확실한 각인을 위해 10 에포크로 상향
     per_device_train_batch_size=4,
-    gradient_accumulation_steps=2,    # 배치가 작을 때 안정성 확보
-    learning_rate=1e-4,               # LoRA는 일반 파인튜닝보다 lr을 조금 더 높게(1e-4 ~ 2e-4) 잡는 게 효과적입니다.
+    gradient_accumulation_steps=2,    
+    learning_rate=1e-4,               
     weight_decay=0.01,
-    logging_steps=10,
-    save_strategy="epoch",
-    bf16=True                         # GPU가 지원한다면 bf16 추천
+    logging_steps=5,                  # 👈 데이터가 적으므로 더 자주 로그를 보도록 수정
+    save_strategy="no",               # 👈 데이터가 적을 때는 에포크마다 저장할 필요 없이 마지막에만 저장하는 게 빠릅니다
+    bf16=True,                        
+    report_to="none"                  # 불필요한 외부 완드비(Wandb) 연동 경고 방지
 )
 
 trainer = Trainer(
